@@ -34,7 +34,7 @@ const char*
 HttpRequest::ParseRequest (const char *buffer, size_t size)
 {
   const char *curPos = buffer;
-  
+
   const char *endline = (const char *)memmem (curPos, size - (curPos-buffer), "\r\n", 2);
   if (endline == 0)
     {
