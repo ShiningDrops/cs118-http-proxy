@@ -14,6 +14,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 
+#include "http-headers.h"
 #include "http-request.h"
 
 using namespace std;
@@ -147,8 +148,9 @@ int main (int argc, char *argv[])
       buf[num_recv+2] = '\0';
       num_recv += 2;
       fprintf(stderr, "%i, %s\n", num_recv, buf);
-      fprintf(stderr, "%i, %i, %i, %i\n", buf[num_recv-3], buf[num_recv-2], buf[num_recv-1], buf[num_recv]);
+      //fprintf(stderr, "%i, %i, %i, %i\n", buf[num_recv-3], buf[num_recv-2], buf[num_recv-1], buf[num_recv]);
 
+      string res = "HTTP/";
       // Parse the request
       try {
         HttpRequest req;
@@ -156,6 +158,24 @@ int main (int argc, char *argv[])
       }
       catch (ParseException ex) {
         printf("Exception raised: %s\n", ex.what());
+
+        // When in doubt, assume HTTP/1.0
+        res += "1.0 ";
+
+        // Our server only has two bad responses, at least up to here
+        string cmp = "Request is not GET";
+        if (strcmp(ex.what(), cmp.c_str()) != 0)
+          res += "400 Bad Request\r\n\r\n";
+        else
+          res += "501 Not Implemented\r\n\r\n";
+
+        // Send the bad stuff!
+        if (send(new_fd, res.c_str(), res.length(), 0) == -1)
+          perror("send");
+
+        // Close everything and GTFO
+        close(new_fd);
+        exit(2);
       }
 
       // Close everything
