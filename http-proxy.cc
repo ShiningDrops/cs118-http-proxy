@@ -14,7 +14,6 @@
 #include <sys/wait.h>
 #include <signal.h>
 
-#include "http-headers.h"
 #include "http-request.h"
 
 using namespace std;
@@ -164,7 +163,7 @@ int make_client_connection (const char *host, const char *port)
     return -2;
   }
 
-  // Make the connection
+  // Print out IP address
   char s[INET6_ADDRSTRLEN];
   inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr), s, sizeof s);
   printf("client: connecting to %s\n", s);
@@ -173,21 +172,6 @@ int make_client_connection (const char *host, const char *port)
   freeaddrinfo(res);
 
   return sock_fd;
-}
-
-void format_remote_request(HttpRequest &req_recv, string& remote_req)
-{
-  // Prepare a new request to send remotely
-  char port_buffer[32];
-  remote_req = "GET " + req_recv.GetPath() + " HTTP/1.0\r\n";
-  remote_req += "Host: " + req_recv.GetHost() + "\r\n";
-  remote_req += "Connection: close\r\n";
-  // Port numbers come in shorts, so we have to do some sprintf wizardry
-  sprintf(port_buffer, "Port: %d\r\n", req_recv.GetPort());
-  remote_req.append(port_buffer);
-  remote_req += "\r\n";
-  
-  //fprintf(stderr, "%s\n", remote_req.c_str());
 }
 
 /**
@@ -210,20 +194,28 @@ int client_connected (int client_fd)
   // Parse the request, prepare response
   try {
     // This is the received request from the client
-    HttpRequest req_recv;
-    req_recv.ParseRequest(buf, buf_len);
+    HttpRequest client_req;
+    client_req.ParseRequest(buf, buf_len);
+
+    // We're not doing persistent stuff
+    client_req.AddHeader("Connection", "close");
 
     // Format the new request
-    string remote_req;
-    format_remote_request(req_recv, remote_req);
+    size_t remote_length = client_req.GetTotalLength() + 1; // +1 for \0
+    char *remote_req = (char *) malloc(remote_length);
+    client_req.FormatRequest(remote_req);
+    fprintf(stderr, "%s\n", remote_req);
 
     // Make connection to remote host
-    int remote_fd = make_client_connection(req_recv.GetHost().c_str(), PORT_REMOTE);
+    int remote_fd = make_client_connection(client_req.GetHost().c_str(), PORT_REMOTE);
 
     fprintf(stderr, "server: sending request\n");
-    // send new request to remote host
-    if (send(remote_fd, remote_req.c_str(), remote_req.length(), 0) == -1)
+    
+    // Send new request to remote host
+    if (send(remote_fd, remote_req, remote_length, 0) == -1)
       perror("send");
+
+    free(remote_req);
 
     // Receive response
     string remote_res;
@@ -252,8 +244,8 @@ int client_connected (int client_fd)
     // By now remote_res has entire response, ship that back wholesale back to the client
     if (send(client_fd, remote_res.c_str(), remote_res.length(), 0) == -1)
       perror("send");
-    
-    fprintf(stderr, "%s\n", remote_res.c_str());
+
+    //fprintf(stderr, "%s\n", remote_res.c_str());
 
     close(remote_fd);
   }
@@ -310,6 +302,7 @@ int main (int argc, char *argv[])
       continue;
     }
 
+    // Print out IP address
     inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr), s, sizeof s);
     printf("server: got connection from %s\n", s);
 
