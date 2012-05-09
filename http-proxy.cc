@@ -15,164 +15,10 @@
 #include <signal.h>
 
 #include "http-request.h"
+#include "http-common.h"
 
 using namespace std;
 
-#define PORT_LISTEN "16969"
-#define PORT_REMOTE "80"
-#define BACKLOG 100
-#define BUFSIZE 2048
-
-// get sockaddr, IPv4 or IPv6:
-void *get_in_addr (struct sockaddr *sa)
-{
-    if (sa->sa_family == AF_INET) {
-        return &(((struct sockaddr_in*)sa)->sin_addr);
-    }
-
-    return &(((struct sockaddr_in6*)sa)->sin6_addr);
-}
-
-/**
- * @brief Creates socket, binds it to port, & listens
- * @returns fd of socket, <0 if error
- */
-int make_server_listener (const char *port)
-{
-  // Create address structs
-  struct addrinfo hints, *res;
-  int sock_fd;
-
-  // Load up address structs
-  memset(&hints, 0, sizeof hints);
-  hints.ai_family = AF_UNSPEC;
-  hints.ai_socktype = SOCK_STREAM;
-  hints.ai_flags = AI_PASSIVE;
-
-  int addr_status = getaddrinfo(NULL, port, &hints, &res);
-  if (addr_status != 0)
-  {
-    fprintf(stderr, "Cannot get info\n");
-    return -1;
-  }
-
-  // Loop through results, connect to first one we can
-  struct addrinfo *p;
-  for (p = res; p != NULL; p = p->ai_next)
-  {
-    // Create the socket
-    sock_fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    if (sock_fd < 0)
-    {
-      perror("server: cannot open socket");
-      continue;
-    }
-
-    // Set socket options
-    int yes = 1;
-    int opt_status = setsockopt(sock_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
-    if (opt_status == -1)
-    {
-      perror("server: setsockopt");
-      exit(1);
-    }
-
-    // Bind the socket to the port
-    int bind_status = bind(sock_fd, res->ai_addr, res->ai_addrlen);
-    if (bind_status != 0)
-    {
-      close(sock_fd);
-      perror("server: Cannot bind socket");
-      continue;
-    }
-
-    // Bind the first one we can
-    break;
-  }
-
-  // No binds happened
-  if (p == NULL)
-  {
-    fprintf(stderr, "server: failed to bind\n");
-    return -2;
-  }
-
-  // Don't need the structure with address info any more
-  freeaddrinfo(res);
-
-  // Start listening
-  if (listen(sock_fd, BACKLOG) == -1) {
-    perror("listen");
-    exit(1);
-  }
-
-  return sock_fd;
-}
-
-/**
- * @brief Creates socket, connects to remote host
- * @returns fd of socket, <0 if error
- */
-int make_client_connection (const char *host, const char *port)
-{
-  // Create address structs
-  struct addrinfo hints, *res;
-  int sock_fd;
-
-  // Load up address structs
-  memset(&hints, 0, sizeof hints);
-  hints.ai_family = AF_UNSPEC;
-  hints.ai_socktype = SOCK_STREAM;
-
-  int addr_status = getaddrinfo(host, port, &hints, &res);
-  if (addr_status != 0)
-  {
-    fprintf(stderr, "Cannot get info\n");
-    return -1;
-  }
-
-  // Loop through results, connect to first one we can
-  struct addrinfo *p;
-  for (p = res; p != NULL; p = p->ai_next)
-  {
-    // Create the socket
-    sock_fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    if (sock_fd < 0)
-    {
-      perror("client: cannot open socket");
-      continue;
-    }
-
-    // Make connection
-    int connect_status = connect(sock_fd, p->ai_addr, p->ai_addrlen);
-    if (connect_status < 0)
-    {
-      close(sock_fd);
-      perror("client: connect");
-      continue;
-    }
-
-    // Bind the first one we can
-    break;
-  }
-
-  // No binds happened
-  if (p == NULL)
-  {
-    fprintf(stderr, "client: failed to connect\n");
-    return -2;
-  }
-
-  // Print out IP address
-  char s[INET6_ADDRSTRLEN];
-  inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr), s, sizeof s);
-  printf("client: connecting to %s\n", s);
-
-  // Don't need the structure with address info any more
-  freeaddrinfo(res);
-
-  return sock_fd;
-}
 
 /**
  * @brief Receives message fromt client and sends it to remote, back to client
@@ -207,10 +53,10 @@ int client_connected (int client_fd)
     fprintf(stderr, "%s\n", remote_req);
 
     // Make connection to remote host
-    int remote_fd = make_client_connection(client_req.GetHost().c_str(), PORT_REMOTE);
+    int remote_fd = make_client_connection(client_req.GetHost().c_str(), REMOTE_SERVER_PORT);
 
     fprintf(stderr, "server: sending request\n");
-    
+
     // Send new request to remote host
     if (send(remote_fd, remote_req, remote_length, 0) == -1)
       perror("send");
@@ -283,7 +129,7 @@ int client_connected (int client_fd)
 int main (int argc, char *argv[])
 {
   // Create a server
-  int sock_fd = make_server_listener(PORT_LISTEN);
+  int sock_fd = make_server_listener(PROXY_SERVER_PORT);
 
   printf("server: waiting for connections...\n");
 
