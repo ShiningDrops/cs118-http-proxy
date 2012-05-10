@@ -10,6 +10,8 @@
 #define BACKLOG 100
 #define BUFSIZE 2048
 
-int make_client_connection (const char *host, const char *port);
-int make_server_listener (const char *port);
 void *get_in_addr (struct sockaddr *sa);
+
+int make_server_listener (const char *port);
+int make_client_connection (const char *host, const char *port);
+int get_data_from_host (int remote_fd, std::string &result);

@@ -1,21 +1,26 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 
+// C++ Libraries
 #include <iostream>
+#include <string>
+
+// C Libraries
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
-#include <netdb.h>
+#include <pthread.h>
+
+// C Network/Socket Libraries
 #include <sys/types.h>
-#include <netinet/in.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
 #include <arpa/inet.h>
 
 #include "http-request.h"
 #include "http-common.h"
-
-#define MAXDATASIZE 100 // max number of bytes we can get at once 
 
 using namespace std;
 
@@ -38,25 +43,10 @@ int main (int argc, char *argv[])
   // Receive response
   string server_res;
 
-  // Loop until we get the last segment? packet?
-  for (;;)
+  if (get_data_from_host(server_fd, server_res) != 0)
   {
-    char res_buf[BUFSIZE];
-
-    // Get data from remote
-    int num_recv = recv(server_fd, res_buf, sizeof(res_buf), 0);
-    if (num_recv < 0)
-    {
-      perror("recv");
-      exit(1);
-    }
-
-    // If we didn't recieve anything, we hit the end
-    else if (num_recv == 0)
-      break;
-
-    // Append the buffer to the response if we got something
-    server_res.append(res_buf, num_recv);
+    // Couldn't get data
+    exit(2);
   }
 
   cout << server_res << endl;

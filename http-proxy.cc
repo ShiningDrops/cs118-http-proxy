@@ -11,8 +11,6 @@
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
-#include <sys/wait.h>
-#include <signal.h>
 #include <pthread.h>
 
 // C Network/Socket Libraries
@@ -27,12 +25,18 @@
 
 using namespace std;
 
-typedef map<string, string> map_t;
+/**
+ * @brief Cache map typedef
+ */
+typedef map<string, string> cache_t;
 
+/**
+ * @brief pthread parameter structure
+ */
 typedef struct 
 {
   int client_fd;
-  map_t *cache;
+  cache_t *cache;
 }
 pt_params;
 
@@ -40,7 +44,7 @@ pt_params;
  * @brief Receives message fromt client and sends it to remote, back to client
  * @returns 0 if success, 1 if error
  */
-int client_connected (int client_fd, map_t *cache)
+int client_connected (int client_fd, cache_t *cache)
 {
   // Set up buffer
   char buf[BUFSIZE];
@@ -66,7 +70,6 @@ int client_connected (int client_fd, map_t *cache)
     size_t remote_length = client_req.GetTotalLength() + 1; // +1 for \0
     char *remote_req = (char *) malloc(remote_length);
     client_req.FormatRequest(remote_req);
-    //fprintf(stderr, "%s\n", remote_req);
 
     // If host not specified in first line, find it in the AddHeaders
     string remote_host;
@@ -75,22 +78,14 @@ int client_connected (int client_fd, map_t *cache)
     else
       remote_host = client_req.GetHost();
 
-    // Make connection to remote host
-    int remote_fd = make_client_connection(remote_host.c_str(), REMOTE_SERVER_PORT);
+    // String of full path, for searching/adding to cache
+    string full_path = remote_host + client_req.GetPath();
 
-    fprintf(stderr, "server: sending request\n");
-
-    // Send new request to remote host
-    if (send(remote_fd, remote_req, remote_length, 0) == -1)
-      perror("send");
-
-    free(remote_req);
-
-    // Receive response
+    // Response "from remote host" to send back to client
     string remote_res;
 
     // Check cache for response
-    map_t::iterator it = cache->find(remote_host + client_req.GetPath());
+    cache_t::iterator it = cache->find(full_path);
     if (it != cache->end())
     {
       // In cache
@@ -99,31 +94,27 @@ int client_connected (int client_fd, map_t *cache)
     }
     else
     {
-      // Not in cache
+      // Not in cache, gotta make a request for it
+
+      // Make connection to remote host
+      int remote_fd = make_client_connection(remote_host.c_str(), REMOTE_SERVER_PORT);
+
+      fprintf(stderr, "server: sending request\n");
+
+      // Send new request to remote host
+      if (send(remote_fd, remote_req, remote_length, 0) == -1)
+        perror("send");
+
       fprintf(stderr, "not in cache\n");
-      // Loop until we get the last segment? packet?
-      for (;;)
+      if (get_data_from_host(remote_fd, remote_res) != 0)
       {
-        char res_buf[BUFSIZE];
-
-        // Get data from remote
-        int num_recv = recv(remote_fd, res_buf, sizeof(res_buf), 0);
-        if (num_recv < 0)
-        {
-          perror("recv");
-          exit(1);
-        }
-
-        // If we didn't recieve anything, we hit the end
-        else if (num_recv == 0)
-          break;
-
-        // Append the buffer to the response if we got something
-        remote_res.append(res_buf, num_recv);
+        // Couldn't get data
+        exit(2);
       }
 
       // Add to the cache
-      cache->insert(pair<string, string>(remote_host + client_req.GetPath(), remote_res));
+      cache->insert(pair<string, string>(full_path, remote_res));
+      close(remote_fd);
     }
 
     // By now remote_res has entire response, ship that back wholesale back to the client
@@ -132,7 +123,7 @@ int client_connected (int client_fd, map_t *cache)
 
     //fprintf(stderr, "%s\n", remote_res.c_str());
 
-    close(remote_fd);
+    free(remote_req);
   }
 
   // Parsing error
@@ -183,7 +174,7 @@ void *pt_client_connected (void *params)
 int main (int argc, char *argv[])
 {
   // Initialize cache
-  map_t cache;
+  cache_t cache;
 
   // Create a server
   int sock_fd = make_server_listener(PROXY_SERVER_PORT);
@@ -191,7 +182,7 @@ int main (int argc, char *argv[])
   printf("server: waiting for connections...\n");
 
   // Main accept loop
-  while(1)
+  for (;;)
   {
     struct sockaddr_storage their_addr; // connector's address information
     char s[INET6_ADDRSTRLEN];
@@ -209,7 +200,7 @@ int main (int argc, char *argv[])
     inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr), s, sizeof s);
     printf("server: got connection from %s\n", s);
 
-    // pthreads requires a pointer as an arg, SO LET THEM HAVE IT
+    // Set up pthreads parameters
     pt_params *params = (pt_params *) malloc(sizeof(pt_params));
     params->client_fd = client_fd;
     params->cache = &cache;

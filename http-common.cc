@@ -5,21 +5,28 @@
  * Skeleton for UCLA CS118 Spring quarter class
  */
 
+// C++ Libraries
 #include <iostream>
+#include <string>
+
+// C Libraries
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
+#include <pthread.h>
+
+// C Network/Socket Libraries
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
-#include <sys/wait.h>
-#include <signal.h>
 
 #include "http-common.h"
+
+using namespace std;
 
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr (struct sockaddr *sa)
@@ -172,4 +179,34 @@ int make_client_connection (const char *host, const char *port)
   freeaddrinfo(res);
 
   return sock_fd;
+}
+
+/**
+ * @brief Gets all data from remote host
+ * @returns 0 on success, <0 on failure
+ * @param result The string that the data is appended to
+ */
+int get_data_from_host (int remote_fd, string &result)
+{
+  // Loop until we get the last segment? packet?
+  for (;;)
+  {
+    char res_buf[BUFSIZE];
+
+    // Get data from remote
+    int num_recv = recv(remote_fd, res_buf, sizeof(res_buf), 0);
+    if (num_recv < 0)
+    {
+      perror("recv");
+      return -1;
+    }
+
+    // If we didn't recieve anything, we hit the end
+    else if (num_recv == 0)
+      break;
+
+    // Append the buffer to the response if we got something
+    result.append(res_buf, num_recv);
+  }
+  return 0;
 }
