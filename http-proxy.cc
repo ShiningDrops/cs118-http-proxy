@@ -14,11 +14,12 @@
 #include <sys/wait.h>
 #include <signal.h>
 
+#include <pthread.h>
+
 #include "http-request.h"
 #include "http-common.h"
 
 using namespace std;
-
 
 /**
  * @brief Receives message fromt client and sends it to remote, back to client
@@ -52,8 +53,15 @@ int client_connected (int client_fd)
     client_req.FormatRequest(remote_req);
     fprintf(stderr, "%s\n", remote_req);
 
+    // If host not specified in first line, find it in the AddHeaders
+    string remote_host;
+    if (client_req.GetHost().length() == 0)
+      remote_host = client_req.FindHeader("Host");
+    else
+      remote_host = client_req.GetHost();
+
     // Make connection to remote host
-    int remote_fd = make_client_connection(client_req.GetHost().c_str(), REMOTE_SERVER_PORT);
+    int remote_fd = make_client_connection(remote_host.c_str(), REMOTE_SERVER_PORT);
 
     fprintf(stderr, "server: sending request\n");
 
@@ -133,6 +141,11 @@ int main (int argc, char *argv[])
 
   printf("server: waiting for connections...\n");
 
+  // pthreads attributes
+  pthread_addr_t pt_attr;
+  pthread_attr_init(&pt_attr);
+  pthread_attr_setdetachstate(&pt_attr, PTHREAD_CREATE_DETACHED);
+
   // Main accept loop
   while(1)
   {
@@ -152,7 +165,10 @@ int main (int argc, char *argv[])
     inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr), s, sizeof s);
     printf("server: got connection from %s\n", s);
 
-    int pid = fork();
+    // Make threads
+    pthread_t i_dont_care;
+    pthread_create(&i_dont_care, &pt_attr, (void*) client_connected, client_fd);
+/*    int pid = fork();
     if (pid == 0)
     {
       // Child process
@@ -167,7 +183,7 @@ int main (int argc, char *argv[])
       // Parent doesn't need new fd
       close(client_fd);
     }
-  }
+  }*/
 
   return 0;
 }

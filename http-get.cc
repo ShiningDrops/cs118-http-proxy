@@ -21,9 +21,48 @@ using namespace std;
 
 int main (int argc, char *argv[])
 {
-  //int server_fd = make_client_connection(argv, (const char *)PROXY_SERVER_PORT);
-  //cout << server_fd;
-  // command line parsing
+  // Connect to local server
+  int server_fd = make_client_connection("localhost", PROXY_SERVER_PORT);
+
+  // Prepare request
+  string client_req = "GET ";
+  client_req.append(argv[1]);
+  client_req.append(" HTTP/1.0\r\n\r\n");
+
+  cout << client_req << endl;
+
+  // Send request to server
+  if (send(server_fd, client_req.c_str(), client_req.length(), 0) == -1)
+    perror("send");
+
+  // Receive response
+  string server_res;
+
+  // Loop until we get the last segment? packet?
+  for (;;)
+  {
+    char res_buf[BUFSIZE];
+
+    // Get data from remote
+    int num_recv = recv(server_fd, res_buf, sizeof(res_buf), 0);
+    if (num_recv < 0)
+    {
+      perror("recv");
+      exit(1);
+    }
+
+    // If we didn't recieve anything, we hit the end
+    else if (num_recv == 0)
+      break;
+
+    // Append the buffer to the response if we got something
+    server_res.append(res_buf, num_recv);
+  }
+
+  cout << server_res << endl;
+
+  // Close connection to local server
+  close(server_fd);
   
   return 0;
 }
