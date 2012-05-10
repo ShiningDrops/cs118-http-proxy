@@ -1,31 +1,46 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 
+// C++ Libraries
 #include <iostream>
+#include <string>
+#include <map>
+
+// C Libraries
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <signal.h>
+#include <pthread.h>
+
+// C Network/Socket Libraries
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
-#include <sys/wait.h>
-#include <signal.h>
-
-#include <pthread.h>
 
 #include "http-request.h"
 #include "http-common.h"
 
 using namespace std;
 
+typedef map<string, string> map_t;
+
+typedef struct 
+{
+  int client_fd;
+  map_t *cache;
+}
+pt_params;
+
 /**
  * @brief Receives message fromt client and sends it to remote, back to client
  * @returns 0 if success, 1 if error
  */
-int client_connected (int client_fd)
+int client_connected (int client_fd, map_t *cache)
 {
   // Set up buffer
   char buf[BUFSIZE];
@@ -45,13 +60,13 @@ int client_connected (int client_fd)
     client_req.ParseRequest(buf, buf_len);
 
     // We're not doing persistent stuff
-    client_req.AddHeader("Connection", "close");
+    client_req.ModifyHeader("Connection", "close");
 
     // Format the new request
     size_t remote_length = client_req.GetTotalLength() + 1; // +1 for \0
     char *remote_req = (char *) malloc(remote_length);
     client_req.FormatRequest(remote_req);
-    fprintf(stderr, "%s\n", remote_req);
+    //fprintf(stderr, "%s\n", remote_req);
 
     // If host not specified in first line, find it in the AddHeaders
     string remote_host;
@@ -74,25 +89,41 @@ int client_connected (int client_fd)
     // Receive response
     string remote_res;
 
-    // Loop until we get the last segment? packet?
-    for (;;)
+    // Check cache for response
+    map_t::iterator it = cache->find(remote_host + client_req.GetPath());
+    if (it != cache->end())
     {
-      char res_buf[BUFSIZE];
-
-      // Get data from remote
-      int num_recv = recv(remote_fd, res_buf, sizeof(res_buf), 0);
-      if (num_recv < 0)
+      // In cache
+      fprintf(stderr, "in cache\n");
+      remote_res = it->second;
+    }
+    else
+    {
+      // Not in cache
+      fprintf(stderr, "not in cache\n");
+      // Loop until we get the last segment? packet?
+      for (;;)
       {
-        perror("recv");
-        exit(1);
+        char res_buf[BUFSIZE];
+
+        // Get data from remote
+        int num_recv = recv(remote_fd, res_buf, sizeof(res_buf), 0);
+        if (num_recv < 0)
+        {
+          perror("recv");
+          exit(1);
+        }
+
+        // If we didn't recieve anything, we hit the end
+        else if (num_recv == 0)
+          break;
+
+        // Append the buffer to the response if we got something
+        remote_res.append(res_buf, num_recv);
       }
 
-      // If we didn't recieve anything, we hit the end
-      else if (num_recv == 0)
-        break;
-
-      // Append the buffer to the response if we got something
-      remote_res.append(res_buf, num_recv);
+      // Add to the cache
+      cache->insert(pair<string, string>(remote_host + client_req.GetPath(), remote_res));
     }
 
     // By now remote_res has entire response, ship that back wholesale back to the client
@@ -124,27 +155,40 @@ int client_connected (int client_fd)
 
     // Close everything and GTFO
     close(client_fd);
-    exit(2);
+    //exit(2);
   }
 
   // Close everything
   close(client_fd);
-  exit(0);
+  //exit(0);
 
   return 0;
 }
 
+/**
+ * @brief Calls client_connected()
+ */
+void *pt_client_connected (void *params)
+{
+  // Cast client_fd into an int*, dereference it, call the right function
+  pt_params *p = (pt_params *) params;
+  client_connected(p->client_fd, p->cache);
+
+  // Free the malloced client_fd
+  free(params);
+
+  return NULL;
+}
+
 int main (int argc, char *argv[])
 {
+  // Initialize cache
+  map_t cache;
+
   // Create a server
   int sock_fd = make_server_listener(PROXY_SERVER_PORT);
 
   printf("server: waiting for connections...\n");
-
-  // pthreads attributes
-  pthread_addr_t pt_attr;
-  pthread_attr_init(&pt_attr);
-  pthread_attr_setdetachstate(&pt_attr, PTHREAD_CREATE_DETACHED);
 
   // Main accept loop
   while(1)
@@ -165,25 +209,15 @@ int main (int argc, char *argv[])
     inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr), s, sizeof s);
     printf("server: got connection from %s\n", s);
 
-    // Make threads
-    pthread_t i_dont_care;
-    pthread_create(&i_dont_care, &pt_attr, (void*) client_connected, client_fd);
-/*    int pid = fork();
-    if (pid == 0)
-    {
-      // Child process
+    // pthreads requires a pointer as an arg, SO LET THEM HAVE IT
+    pt_params *params = (pt_params *) malloc(sizeof(pt_params));
+    params->client_fd = client_fd;
+    params->cache = &cache;
 
-      close(sock_fd);
-      client_connected(client_fd);
-    }
-    else
-    {
-      // Parent process
-
-      // Parent doesn't need new fd
-      close(client_fd);
-    }
-  }*/
-
+    // Make threads to deal with logic
+    pthread_t thread_id; // We're going to detach, IDGAF this variable can die
+    pthread_create(&thread_id, NULL, pt_client_connected, (void *) params);
+    pthread_detach(thread_id);
+  }
   return 0;
 }
