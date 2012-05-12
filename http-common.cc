@@ -129,7 +129,7 @@ int make_client_connection (const char *host, const char *port)
   hints.ai_family = AF_UNSPEC;
   hints.ai_socktype = SOCK_STREAM;
 
-  fprintf(stderr, "%s %s\n", host, port);
+  //fprintf(stderr, "%s %s\n", host, port);
 
   int addr_status = getaddrinfo(host, port, &hints, &res);
   if (addr_status != 0)
@@ -173,7 +173,7 @@ int make_client_connection (const char *host, const char *port)
   // Print out IP address
   char s[INET6_ADDRSTRLEN];
   inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr), s, sizeof s);
-  printf("client: connecting to %s\n", s);
+  //fprintf(stderr, "client: connecting to %s\n", s);
 
   // Don't need the structure with address info any more
   freeaddrinfo(res);

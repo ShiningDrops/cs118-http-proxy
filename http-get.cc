@@ -73,7 +73,10 @@ int main (int argc, char *argv[])
 
   // Find last occurance of '/', move one forward
   char *fname_slash = strrchr(argv[1], '/');
-  fname_slash++;
+  if (fname_slash == NULL)
+    fname_slash = argv[1];
+  else
+    fname_slash++;
 
   // If last char is slash (next char is null), name is index
   if (*(fname_slash) == '\0')

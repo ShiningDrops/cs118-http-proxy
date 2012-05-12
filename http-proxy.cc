@@ -37,7 +37,7 @@ typedef struct
 {
   int client_fd;
   cache_t *cache;
-  pthread_mutex_t mutex;
+  pthread_mutex_t *mutex;
 }
 pt_params;
 
@@ -180,7 +180,7 @@ void *pt_client_connected (void *params)
 {
   // Cast client_fd into an int*, dereference it, call the right function
   pt_params *p = (pt_params *) params;
-  client_connected(p->client_fd, p->cache, &p->mutex);
+  client_connected(p->client_fd, p->cache, p->mutex);
 
   // Close and free
   close(p->client_fd);
@@ -201,6 +201,8 @@ int main (int argc, char *argv[])
 
   // Initialize cache
   cache_t cache;
+  pthread_mutex_t cache_mutex;
+  pthread_mutex_init(&cache_mutex, NULL);
 
   //printf("server: waiting for connections...\n");
 
@@ -227,7 +229,7 @@ int main (int argc, char *argv[])
     pt_params *params = (pt_params *) malloc(sizeof(pt_params));
     params->client_fd = client_fd;
     params->cache = &cache;
-    pthread_mutex_init(&params->mutex, NULL);
+    params->mutex = &cache_mutex;
 
     // Make threads to deal with logic
     pthread_t thread_id; // We're going to detach, IDGAF this variable can die
